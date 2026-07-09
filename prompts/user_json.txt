@@ -1,0 +1,10 @@
+Libro de códigos ANIDADO:
+{BOOK_JSON}
+
+Instrucciones:
+- Recorre la jerarquía y selecciona códigos.
+- Usa las etiquetas como señales semánticas para el match.
+- El numero de codigos debe debe ir de {MIN_CODIGOS} a {MAX_CODIGOS} por respuesta.
+
+Respuestas (Identificador: texto):
+{RESPUESTAS}
