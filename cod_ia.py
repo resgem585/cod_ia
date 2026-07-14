@@ -11,7 +11,8 @@ from openai import OpenAI
 from proc_evm.bdd_sav import BaseDatos
 
 from utils import json_a_texto, generar_codigos_json, chunk, \
-    limpiar_respuestas, escribir_json
+    limpiar_respuestas, escribir_json, extraer_codigos_validos, obtener_errores_validacion_codigos, \
+    imprimir_errores_validacion
 
 
 class Codi_IA:
@@ -26,6 +27,7 @@ class Codi_IA:
                  system_prompt: str,
                  user_prompt: str,
                  ruta_salida: Path,
+                 razonamiento: str = "low",
                  max_registros: int = 0,
                  tipo_cods: str = "texto",
                  batch_size: int = 50,
@@ -45,6 +47,7 @@ class Codi_IA:
         self.var_verba = var_verba
         self.id_var = id_var
         self.modelo = modelo
+        self.razonamiento = razonamiento
         self.system_prompt = system_prompt
         self.user_prompt = user_prompt
         self.ruta_salida = ruta_salida
@@ -149,6 +152,7 @@ class Codi_IA:
             verbas: List[str],
             ids: List[int],
             lista_codigos: Dict[str, Any] | str,
+            lista_codigos_json: Dict[str, Any]
     ) -> dict[int, list[list[int]]]:
 
         # CARGA DE PROMPTS
@@ -158,6 +162,10 @@ class Codi_IA:
         # ESTRUCTURAS DE SALIDA
         resultados_todos_lotes: Dict[int, List[List[int]]] = {}
         bitacora = []
+
+        # CÓDIGOS VÁLIDOS DEL LIBRO ORIGINAL
+        codigos_validos = extraer_codigos_validos(lista_codigos_json)
+        print(f"[INFO] Códigos válidos cargados: {len(codigos_validos)}")
 
         # Crear lotes de respuestas e IDs
         lotes_respuestas = chunk(verbas, self.batch_size)
@@ -187,51 +195,119 @@ class Codi_IA:
             #  Guardar prompts debug
             self.guardar_prompts_debug(numero_lote, system_prompt, user_prompt)
 
-            # Llamada al modelo
-            # Se hace la llamada al modelo esperando JSON directo en texto
-            t0 = time.perf_counter()
-            print(f"Haciendo llamada a la Api {self.modelo}.. Lote:{numero_lote}")
+            respuesta_json = None
+            max_intentos_lote = 2
 
-            respuesta = self.client.responses.create(
-                model=self.modelo,
-                input=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt},
-                ],
-                reasoning={"effort": "low"},
-                text={"verbosity": "low",
-                      "format": {
-                          "type": "json_object"
-                      }
-                      },
-            )
-            tiempo_transcurrido = time.perf_counter() - t0
+            for intento in range(1, max_intentos_lote + 1):
+                try:
+                    t0 = time.perf_counter()
 
-            # Guardar respuesta cruda en la carpeta debug
-            respuesta_cruda = respuesta.model_dump()
-            escribir_json(self.ruta_debug / f"respuesta_cruda_lote_{numero_lote:02d}.json", respuesta_cruda)
+                    print(
+                        f"Haciendo llamada a la Api {self.modelo}.. "
+                        f"Lote:{numero_lote} Intento:{intento}"
+                    )
 
-            # Extraer datos de tokens para bitácora
-            usage = respuesta.usage
+                    respuesta = self.client.responses.create(
+                        model=self.modelo,
+                        input=[
+                            {"role": "system", "content": system_prompt},
+                            {"role": "user", "content": user_prompt},
+                        ],
+                        reasoning={"effort": self.razonamiento},
+                        text={
+                            "verbosity": "low",
+                            "format": {
+                                "type": "json_object"
+                            }
+                        },
+                    )
 
-            bitacora.append({
-                "fecha": datetime.now().strftime("%Y-%m-%d %H:%M"),
-                "modelo": self.modelo,
-                "lote": numero_lote,
-                "respuestas": len(respuesta_lote),
-                "reasoning_effort": respuesta.reasoning.effort,
-                "input_tokens": usage.input_tokens,
-                "output_tokens": usage.output_tokens,
-                "reasoning_tokens": usage.output_tokens_details.reasoning_tokens,
-                "total_tokens": usage.total_tokens,
-                "tiempo_s": round(tiempo_transcurrido, 3),
-            })
+                    tiempo_transcurrido = time.perf_counter() - t0
 
-            # Extraer JSON a Texto
-            respuesta_json = json.loads(respuesta.output_text)
-            print(respuesta_json)
-            # Log de tokens por lote
-            print(f"tiempo_s={round(tiempo_transcurrido, 3)}")
+                    # Guardar respuesta cruda en la carpeta debug
+                    respuesta_cruda = respuesta.model_dump()
+                    escribir_json(
+                        self.ruta_debug / f"respuesta_cruda_lote_{numero_lote:02d}_intento_{intento}.json",
+                        respuesta_cruda
+                    )
+
+                    # Extraer datos de tokens para bitácora
+                    usage = respuesta.usage
+
+                    bitacora.append({
+                        "fecha": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                        "modelo": self.modelo,
+                        "lote": numero_lote,
+                        "intento": intento,
+                        "respuestas": len(respuesta_lote),
+                        "reasoning_effort": respuesta.reasoning.effort,
+                        "input_tokens": usage.input_tokens,
+                        "output_tokens": usage.output_tokens,
+                        "reasoning_tokens": usage.output_tokens_details.reasoning_tokens,
+                        "total_tokens": usage.total_tokens,
+                        "tiempo_s": round(tiempo_transcurrido, 3),
+                    })
+
+                    # Convertir salida del modelo a dict de Python
+                    respuesta_json = json.loads(respuesta.output_text)
+
+                    # Validar códigos devueltos por el modelo
+                    errores = obtener_errores_validacion_codigos(
+                        respuesta_json=respuesta_json,
+                        codigos_validos=codigos_validos,
+                    )
+
+                    if errores:
+                        imprimir_errores_validacion(
+                            numero_lote=numero_lote,
+                            intento=intento,
+                            errores=errores,
+                        )
+
+                        if intento < max_intentos_lote:
+                            print(f"[WARN] Reintentando lote {numero_lote} con razonamiento {self.razonamiento}...")
+                            continue
+
+                        raise ValueError(
+                            f"El lote {numero_lote} devolvió códigos inexistentes "
+                            f"o confianza 0 después de {max_intentos_lote} intentos."
+                        )
+
+                    print(
+                        f"[OK] Codigos en lote {numero_lote} validados correctamente "
+                        f"en intento {intento}. tiempo_s={round(tiempo_transcurrido, 3)}"
+                    )
+
+                    break
+
+                except json.JSONDecodeError as e:
+                    print(f"\n[ERROR] El lote {numero_lote}, intento {intento}, no devolvió JSON válido.")
+                    print(f"[ERROR] Respuesta recibida: {repr(respuesta.output_text)}")
+
+                    if intento < max_intentos_lote:
+                        print(f"[WARN] Reintentando lote {numero_lote} con razonamiento {self.razonamiento}...")
+                        continue
+
+                    raise ValueError(
+                        f"El lote {numero_lote} no devolvió JSON válido después de "
+                        f"{max_intentos_lote} intentos."
+                    ) from e
+
+                except Exception as e:
+                    if intento < max_intentos_lote:
+                        print(
+                            f"[WARN] Error en lote {numero_lote}, intento {intento}: {e}"
+                        )
+                        print(f"[WARN] Reintentando lote {numero_lote} con razonamiento {self.razonamiento}...")
+                        continue
+
+                    raise
+
+            if respuesta_json is None:
+                raise RuntimeError(
+                    f"No se pudo obtener respuesta válida para lote {numero_lote}"
+                )
+
             resultados_todos_lotes.update(respuesta_json)
 
         # LOG FINAL DE TOKENS
@@ -289,7 +365,7 @@ class Codi_IA:
             print(f"[MODO PRUEBA] Asignando códigos vacíos para {len(verbas_filtradas)} respuestas.")
         # Si no está en modo prueba, se llama a la función real de asignación
         else:
-            codigos_resultado = self.asignar_codigos(verbas_filtradas, ids_filtrados, lista_codigos_prompt)
+            codigos_resultado = self.asignar_codigos(verbas_filtradas, ids_filtrados, lista_codigos_prompt, lista_codigos_json)
 
         tiempo_total = time.perf_counter() - total_t0
 
@@ -299,6 +375,7 @@ class Codi_IA:
             "codigos_confianza": codigos_resultado,
             "verbas": dict(zip(ids_filtrados, verbas_filtradas)),
             "modelo": self.modelo,
+            "razonamiento": self.razonamiento,
             "min_codigos": self.min_codigos,
             "max_codigos": self.max_codigos,
             "tiempo": int(round(tiempo_total, 0)),

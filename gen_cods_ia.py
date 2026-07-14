@@ -3,12 +3,15 @@ from proc_evm.bdd_sav import BaseDatos
 from cod_ia import Codi_IA
 
 MODELOS = ["gpt-5.4-nano"]
+razonamiento = "low"
 # gpt5 - 800 registros - 20 pesos. 40 r/$
 # tres modelos 600 registros - 14 pesos      43 r/&
-# gpt-5.4-nano
-# gpt-5-nano
+# gpt-5.4-nano low - 800 registros 2 pesos
+# gpt-5-nano medium - 800 regustros 4 pesos
+# gpt-5-nano medium - 800 regustros 8 pesos
 
-print(f"[INFO] Modelos a ejecutar: {MODELOS}")
+
+print(f"[INFO] Modelos a ejecutar: {MODELOS} Razonamiento: {razonamiento}")
 
 
 def ignorar_1(verba):
@@ -22,11 +25,11 @@ for modelo in MODELOS:
 
     print(f"\n=== Ejecutando con modelo: {modelo} ===")
     for cods_prompt in ["json"]:
-        max_registros = 2
+        max_registros = 0
         var_verba = "p3"
 
-        ruta_salida = Path(f"salida/Hamm-{var_verba}-{max_registros}-{modelo}_{cods_prompt}.json")
-        ruta_debug = Path(f"debug/Hamm-{var_verba}-{max_registros}-{modelo}_{cods_prompt}")
+        ruta_salida = Path(f"salida/Hamm-{var_verba}-{max_registros}-{modelo}-{razonamiento}_{cods_prompt}.json")
+        ruta_debug = Path(f"debug/Hamm-{var_verba}-{max_registros}-{modelo}-{razonamiento}_{cods_prompt}")
 
         if ruta_salida.exists():
             print(f"[INFO] El archivo {ruta_salida} ya existe. Se omite la codificación.")
@@ -43,6 +46,7 @@ for modelo in MODELOS:
                 f"prompts/system_{cods_prompt}.txt",
                 f"prompts/user_{cods_prompt}.txt",
                 ruta_salida,
+                razonamiento,
                 max_registros,
                 cods_prompt,
                 50,

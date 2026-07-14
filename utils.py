@@ -399,6 +399,9 @@ def extraer_codigos_validos(libro_codigos) -> set[int]:
     """
     Recorre el libro de códigos y extrae todos los códigos numéricos válidos.
     Funciona con libros simples y jerárquicos.
+
+    Devuelve un set de enteros:
+    {101, 102, 103, ...}
     """
     codigos_validos = set()
 
@@ -420,6 +423,131 @@ def extraer_codigos_validos(libro_codigos) -> set[int]:
     recorrer(libro_codigos)
 
     return codigos_validos
+
+
+def obtener_errores_validacion_codigos(
+        respuesta_json: dict,
+        codigos_validos: set[int],
+) -> list[dict]:
+    """
+    Valida la respuesta devuelta por el modelo.
+
+    Revisa:
+    - Que la respuesta sea un dict.
+    - Que cada ID tenga una lista de asignaciones.
+    - Que cada asignación tenga formato [codigo, confianza].
+    - Que el código exista en el libro de códigos.
+    - Que la confianza no sea 0.
+    - Que código y confianza sean convertibles a int.
+
+    Devuelve:
+    - [] si no hay errores.
+    - lista de errores si algo está mal.
+    """
+
+    errores = []
+
+    if not isinstance(respuesta_json, dict):
+        return [{
+            "id": None,
+            "codigo": None,
+            "confianza": None,
+            "error": "La respuesta no es un objeto JSON",
+            "valor": respuesta_json
+        }]
+
+    for id_respuesta, asignaciones in respuesta_json.items():
+
+        if not isinstance(asignaciones, list):
+            errores.append({
+                "id": id_respuesta,
+                "codigo": None,
+                "confianza": None,
+                "error": "La asignación del ID no es una lista",
+                "valor": asignaciones
+            })
+            continue
+
+        for asignacion in asignaciones:
+
+            if not isinstance(asignacion, list) or len(asignacion) != 2:
+                errores.append({
+                    "id": id_respuesta,
+                    "codigo": None,
+                    "confianza": None,
+                    "error": "Cada asignación debe tener formato [codigo, confianza]",
+                    "valor": asignacion
+                })
+                continue
+
+            codigo, confianza = asignacion
+
+            try:
+                codigo = int(codigo)
+            except (ValueError, TypeError):
+                errores.append({
+                    "id": id_respuesta,
+                    "codigo": codigo,
+                    "confianza": confianza,
+                    "error": "Código no numérico",
+                    "valor": asignacion
+                })
+                continue
+
+            try:
+                confianza = int(confianza)
+            except (ValueError, TypeError):
+                errores.append({
+                    "id": id_respuesta,
+                    "codigo": codigo,
+                    "confianza": confianza,
+                    "error": "Confianza no numérica",
+                    "valor": asignacion
+                })
+                continue
+
+            if codigo not in codigos_validos:
+                errores.append({
+                    "id": id_respuesta,
+                    "codigo": codigo,
+                    "confianza": confianza,
+                    "error": "Código no existe en el libro",
+                    "valor": asignacion
+                })
+
+            if confianza == 0:
+                errores.append({
+                    "id": id_respuesta,
+                    "codigo": codigo,
+                    "confianza": confianza,
+                    "error": "Confianza igual a 0",
+                    "valor": asignacion
+                })
+
+    return errores
+
+
+def imprimir_errores_validacion(
+        numero_lote: int,
+        intento: int,
+        errores: list[dict],
+) -> None:
+    """
+    Imprime en consola los errores de validación encontrados.
+    No guarda nada en debug.
+    """
+
+    print(f"\n[ERROR] Validación fallida en lote {numero_lote}, intento {intento}")
+    print(f"[ERROR] Total de errores encontrados: {len(errores)}")
+
+    for error in errores:
+        print(
+            f"ID={error.get('id')} | "
+            f"codigo={error.get('codigo')} | "
+            f"confianza={error.get('confianza')} | "
+            f"error={error.get('error')} | "
+            f"valor={error.get('valor')}"
+        )
 
 # =========================
 # CONFIGURACION
