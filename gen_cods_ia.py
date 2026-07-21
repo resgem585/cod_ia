@@ -25,7 +25,7 @@ for modelo in MODELOS:
 
     print(f"\n=== Ejecutando con modelo: {modelo} ===")
     for cods_prompt in ["json"]:
-        max_registros = 0
+        max_registros = 200
         var_verba = "p3"
 
         ruta_salida = Path(f"salida/Hamm-{var_verba}-{max_registros}-{modelo}-{razonamiento}_{cods_prompt}.json")
@@ -49,7 +49,7 @@ for modelo in MODELOS:
                 razonamiento,
                 max_registros,
                 cods_prompt,
-                50,
+                100,
                 ruta_debug,
                 ignorar_1,
                 1,

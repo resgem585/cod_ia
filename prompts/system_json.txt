@@ -16,7 +16,7 @@ Reglas:
        medicinales → Medicinal, confianza 100
        dulces/dulcecito → Dulce, confianza 100
 7) La salida debe ser un objeto JSON donde la llave sea el identificador de la respuesta y el valor sea una lista de pares [codigo, confianza].
-
+8) No codifiques si la respuesta tiene menos de 80% de confianza con todos los códigos posibles.
 
 Ejemplo válido:
 {{
